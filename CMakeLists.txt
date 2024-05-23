@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(Yolov5) 	
-set(OpenCV_DIR "E:\\Opencv\\opencv_vs\\build") 
+set(OpenCV_DIR "path/to/opencv/build") 
 add_definitions(-DAPI_EXPORTS)			
 option(CUDA_USE_STATIC_CUDA_RUNTIME OFF)		
 set(CMAKE_CXX_STANDARD 11)		
