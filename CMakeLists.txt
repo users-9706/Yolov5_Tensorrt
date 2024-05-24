@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.0)
 project(Yolov5) 	
 set(OpenCV_DIR "path/to/opencv/build") 
 add_definitions(-DAPI_EXPORTS)			
