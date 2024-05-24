@@ -27,7 +27,7 @@ class Logger : public nvinfer1::ILogger
 			std::cout << message << std::endl;
 	}
 } gLogger;
-void onnx_to_engine(std::string onnx_file_path, std::string engine_file_path, int type) {
+void onnx_to_engine(std::string onnx_file_path, std::string engine_file_path, std::string type) {
 	nvinfer1::IBuilder* builder = nvinfer1::createInferBuilder(gLogger);
 	const auto explicitBatch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
 	nvinfer1::INetworkDefinition* network = builder->createNetworkV2(explicitBatch);
@@ -39,12 +39,12 @@ void onnx_to_engine(std::string onnx_file_path, std::string engine_file_path, in
 	}
 	printf("tensorRT load mask onnx model successfully!!!...\n");
 	nvinfer1::IBuilderConfig* config = builder->createBuilderConfig();
-	config->setMaxWorkspaceSize(16 * (1 << 20));
-	if (type == 1) {
+	config->setMaxWorkspaceSize(1 << 30);
+	if (type == "fp16") {
 		config->setFlag(nvinfer1::BuilderFlag::kFP16);
 	}
-	if (type == 2) {
-		config->setFlag(nvinfer1::BuilderFlag::kINT8);
+	else {
+		std::cout << "WARNING: FP32 is used by default." << std::endl;
 	}
 	nvinfer1::ICudaEngine* engine = builder->buildEngineWithConfig(*network, *config);
 	std::cout << "try to save engine file now~~~" << std::endl;
@@ -162,12 +162,12 @@ int main()
 		}
 		float t = (cv::getTickCount() - start) / static_cast<float>(cv::getTickFrequency());
 	   	cv::putText(image, cv::format("FPS: %.2f", 1 / t), cv::Point(20, 40), cv::FONT_HERSHEY_PLAIN, 2.0, cv::Scalar(255, 0, 0), 2, 8);
-		cv::imshow("Cpp + Tensorrt + Yolov5 推理结果", image);
+		cv::imshow("C++ + Tensorrt + Yolov5 推理结果", image);
 		cv::waitKey(0);
 	}
 	else
 	{
-		onnx_to_engine(model_path_onnx, model_path_engine, 1);
+		onnx_to_engine(model_path_onnx, model_path_engine, "fp16");
 	}
 	return 0;
 }
