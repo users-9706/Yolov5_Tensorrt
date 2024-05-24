@@ -1,9 +1,9 @@
 import os
-import cv2
-import numpy as np
 import tensorrt as trt
 import pycuda.driver as cuda
 import pycuda.autoinit
+import numpy as np
+import cv2
 class HostDeviceMem(object):
     def __init__(self, host_mem, device_mem):
         self.host = host_mem
@@ -12,37 +12,6 @@ class HostDeviceMem(object):
         return "Host:\n" + str(self.host) + "\nDevice:\n" + str(self.device)
     def __repr__(self):
         return self.__str__()
-def alloc_buf_N(engine, data):
-    inputs = []
-    outputs = []
-    bindings = []
-    stream = cuda.Stream()
-    data_type = []
-    for binding in engine:
-        if engine.binding_is_input(binding):
-            size = data.shape[0] * data.shape[1] * data.shape[2] * data.shape[3]
-            dtype = trt.nptype(engine.get_binding_dtype(binding))
-            data_type.append(dtype)
-            host_mem = cuda.pagelocked_empty(size, dtype)
-            device_mem = cuda.mem_alloc(host_mem.nbytes)
-            bindings.append(int(device_mem))
-            inputs.append(HostDeviceMem(host_mem, device_mem))
-        else:
-            size = trt.volume(engine.get_binding_shape(binding)[1:]) * engine.max_batch_size
-            host_mem = cuda.pagelocked_empty(size, data_type[0])
-            device_mem = cuda.mem_alloc(host_mem.nbytes)
-            bindings.append(int(device_mem))
-            outputs.append(HostDeviceMem(host_mem, device_mem))
-    return inputs, outputs, bindings, stream
-def do_inference_v2(context, inputs, bindings, outputs, stream, data):
-    for inp in inputs:
-        cuda.memcpy_htod_async(inp.device, inp.host, stream)
-    context.set_binding_shape(0, data.shape)
-    context.execute_async(batch_size=1, bindings=bindings, stream_handle=stream.handle)
-    for out in outputs:
-        cuda.memcpy_dtoh_async(out.host, out.device, stream)
-    stream.synchronize()
-    return [out.host for out in outputs]
 def onnx_to_engine(onnx_file_path, engine_file_path, precision_type=None):
     TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(TRT_LOGGER)
@@ -89,12 +58,37 @@ if os.path.exists(engine_path):
     input_image = input_image.transpose(2, 0, 1)
     input_tensor = input_image[np.newaxis, :, :, :].astype(np.float32)
     start_time = cv2.getTickCount()
+    inputs_alloc_buf = []
+    outputs_alloc_buf = []
+    bindings_alloc_buf = []
+    stream_alloc_buf = cuda.Stream()
     context = engine.create_execution_context()
-    inputs_alloc_buf, outputs_alloc_buf, bindings_alloc_buf, stream_alloc_buf = alloc_buf_N(engine, input_tensor)
+    data_type = []
+    for binding in engine:
+        if engine.binding_is_input(binding):
+            size = input_tensor.shape[0] * input_tensor.shape[1] * input_tensor.shape[2] * input_tensor.shape[3]
+            dtype = trt.nptype(engine.get_binding_dtype(binding))
+            data_type.append(dtype)
+            host_mem = cuda.pagelocked_empty(size, dtype)
+            device_mem = cuda.mem_alloc(host_mem.nbytes)
+            bindings_alloc_buf.append(int(device_mem))
+            inputs_alloc_buf.append(HostDeviceMem(host_mem, device_mem))
+        else:
+            size = trt.volume(engine.get_binding_shape(binding)[1:]) * engine.max_batch_size
+            host_mem = cuda.pagelocked_empty(size, data_type[0])
+            device_mem = cuda.mem_alloc(host_mem.nbytes)
+            bindings_alloc_buf.append(int(device_mem))
+            outputs_alloc_buf.append(HostDeviceMem(host_mem, device_mem))
     inputs_alloc_buf[0].host = input_tensor.reshape(-1)
-    net_output = do_inference_v2(context, inputs_alloc_buf, bindings_alloc_buf, outputs_alloc_buf, stream_alloc_buf, input_tensor)
-    net_output = net_output[0].reshape(25200, 85)
-    predictions = np.squeeze(net_output)
+    for inp in inputs_alloc_buf:
+        cuda.memcpy_htod_async(inp.device, inp.host, stream_alloc_buf)
+    context.set_binding_shape(0, input_tensor.shape)
+    context.execute_async(batch_size=1, bindings=bindings_alloc_buf, stream_handle=stream_alloc_buf.handle)
+    for out in outputs_alloc_buf:
+        cuda.memcpy_dtoh_async(out.host, out.device, stream_alloc_buf)
+    stream_alloc_buf.synchronize()
+    net_output = [out.host for out in outputs_alloc_buf]
+    predictions = net_output[0].reshape(25200, 85)
     scores = np.max(predictions[:, 4:5], axis=1)
     predictions = predictions[scores > score_thresold, :]
     scores = scores[scores > score_thresold]
